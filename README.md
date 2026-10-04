@@ -6,7 +6,7 @@ TasteShift starts with a few favourite artists, films or books and finds connect
 
 ## Current state
 
-The Python backend supports entity search, discovery, guest sessions, saved selections and feedback. It includes deterministic ranking and automated tests. The frontend, model-powered agent, explainability integration and public deployment are still pending. No live Qloo request has been verified yet; access is awaiting an API key.
+The Python backend supports entity search, discovery, guest sessions, saved selections and feedback. A Pydantic AI agent can inspect candidates, request eligible entity details, and produce a validated introduction plan. Its integration is tested with scripted models and mocked HTTP responses, not live providers. The frontend, Qloo explainability integration and public deployment are still pending. No live Qloo request has been verified yet; access is awaiting an API key.
 
 Test provider responses are synthetic and used only in tests. Runtime never silently substitutes fixture recommendations for Qloo.
 
@@ -63,6 +63,36 @@ RUN_QLOO_LIVE=1 uv run pytest tests/test_live.py -q
 
 This calls real Qloo search and cross-category Insights. It is skipped during regular test runs and CI.
 
+## Agent mode
+
+Leave `MODEL_API_KEY` and `MODEL_NAME` empty until you are ready for paid model calls. Both must be configured in `backend/.env`; the initial adapter uses OpenAI Responses with an explicit model identifier, no automatic SDK retries and response storage disabled. The model is not chosen automatically. `/api/health` reports configuration, not whether credentials work.
+
+Add an optional intent to a normal discovery request:
+
+```json
+{
+  "seed_ids": ["<confirmed Qloo UUID>", "<confirmed Qloo UUID>", "<confirmed Qloo UUID>"],
+  "level": "curious",
+  "intent": {
+    "text": "A quiet evening with something unfamiliar",
+    "categories": ["artist", "movie", "book"]
+  }
+}
+```
+
+Use actual distinct UUIDs from search; the strings above are placeholders. Without an intent, the original deterministic discovery path remains available. With an intent but no configured model, the API returns `503 agent_not_configured` before provider calls.
+
+Responses include `evidence` and an `agent` section with status, steps, model/prompt version and observed usage. Failed validation, provider calls or budgets produce an explicit `fallback_*` status alongside the factual items, with no unvalidated plan. Saved results and idempotent replay do not re-run the model.
+
+See [agent implementation and limitations](docs/agent-implementation.md) before enabling it publicly. It currently inspects cached Qloo pools, not an open-ended search; unsupported free-text requirements are handled by prompting for clarification, not a verified semantic classifier.
+
+After both keys and a model are configured, the separate live check is explicitly opt-in and may incur charges:
+
+```sh
+cd backend
+RUN_AGENT_LIVE=1 uv run pytest tests/test_live.py::test_live_grounded_agent_plan -q
+```
+
 To package the API in Docker:
 
 ```sh
@@ -73,10 +103,10 @@ Supply database configuration and the API key at runtime, never as build argumen
 
 ## Implementation notes
 
-Qloo calls use `https://hackathon.api.qloo.com`, `X-Api-Key`, `/search`, `/entities`, and `GET /v2/insights`. Provider errors are sanitized, calls are time-bounded and outgoing concurrency is limited. The backend makes one entity lookup and three category requests per discovery. Provider quota enforcement and session-data cleanup still need to be completed before a public launch.
+Qloo calls use `https://hackathon.api.qloo.com`, `X-Api-Key`, `/search`, `/entities`, and `GET /v2/insights`. Provider errors are sanitized, calls are time-bounded and outgoing concurrency is limited. The standard path makes one entity lookup and three category requests per discovery; agent mode queries requested categories and may make budgeted detail lookups. Account-level provider quotas and session-data cleanup still need to be completed before a public launch.
 
 The first migration stores discovery items inside a JSON snapshot rather than separate item/evidence tables. This keeps the initial slice small; the snapshot can be split when explainability and experience planning are added. FastAPI currently exposes API documentation, not a finished consumer interface.
 
 See [MVP design](docs/mvp-design.md), [architecture](docs/architecture.md), and [agent research and integration plan](docs/agent-design.md).
 
-An isolated [Pydantic AI experiment](research/agent-spike/README.md) verifies typed tool calls, ID/evidence validation and execution limits without API keys. It is not yet connected to the backend.
+The isolated [Pydantic AI experiment](research/agent-spike/README.md) remains a small runtime check. The application now has its own agent implementation and integration tests; it does not import the experiment.

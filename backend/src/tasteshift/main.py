@@ -1,26 +1,28 @@
-import asyncio
 import hashlib
 import secrets
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request, Response
+from openai import AsyncOpenAI
+from pydantic_ai.models.openai import OpenAIResponsesModel
+from pydantic_ai.providers.openai import OpenAIProvider
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tasteshift.agent import AgentAdmission, AgentRunner
 from tasteshift.config import Settings
+from tasteshift.discovery import DiscoveryService, UnresolvedInterests, feedback_signals
 from tasteshift.domain import (
     Category,
-    Coverage,
     Discovery,
     DiscoveryRequest,
     FeedbackRequest,
 )
 from tasteshift.qloo import ProviderError, QlooClient
-from tasteshift.ranking import rank
 from tasteshift.storage import DiscoveryRecord, FeedbackRecord, SessionRecord
 
 
@@ -28,7 +30,7 @@ def digest(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
+def create_app(settings: Settings | None = None, transport=None, *, agent_model=None) -> FastAPI:
     settings = settings or Settings()
     engine = create_async_engine(settings.database_url.get_secret_value())
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -43,8 +45,25 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
         ) as http:
             key = settings.qloo_api_key.get_secret_value() if settings.qloo_api_key else None
             app.state.qloo = QlooClient(http, key)
-            yield
-        await engine.dispose()
+            async with AsyncExitStack() as stack:
+                stack.push_async_callback(engine.dispose)
+                model = agent_model
+                if model is None and settings.model_name and settings.model_api_key:
+                    model_client = await stack.enter_async_context(
+                        AsyncOpenAI(
+                            api_key=settings.model_api_key.get_secret_value(),
+                            base_url="https://api.openai.com/v1",
+                            max_retries=0,
+                            timeout=settings.discovery_timeout,
+                        )
+                    )
+                    model = OpenAIResponsesModel(
+                        settings.model_name, provider=OpenAIProvider(openai_client=model_client)
+                    )
+                app.state.runner = AgentRunner(settings, model) if model is not None else None
+                app.state.admission = AgentAdmission(settings)
+                app.state.discovery = DiscoveryService(settings, app.state.qloo, app.state.runner)
+                yield
 
     app = FastAPI(title="TasteShift", version="0.1.0", lifespan=lifespan)
     app.state.engine = engine
@@ -53,7 +72,8 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
     async def provider_error(request, exc):
         from fastapi.responses import JSONResponse
 
-        return JSONResponse(status_code=503, content={"detail": {"code": exc.code}})
+        status = 429 if exc.code == "agent_rate_limit" else 503
+        return JSONResponse(status_code=status, content={"detail": {"code": exc.code}})
 
     @app.exception_handler(SQLAlchemyError)
     async def database_error(request, exc):
@@ -111,7 +131,11 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
 
     @app.get("/api/health")
     async def health():
-        return {"status": "ok", "qloo_configured": bool(settings.qloo_api_key)}
+        return {
+            "status": "ok",
+            "qloo_configured": bool(settings.qloo_api_key),
+            "agent_configured": app.state.runner is not None,
+        }
 
     @app.get("/api/ready")
     async def ready():
@@ -136,10 +160,12 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
         request_key = request.headers.get("idempotency-key")
         if not request_key or not 1 <= len(request_key) <= 64:
             raise HTTPException(422, "Provide an Idempotency-Key of 1–64 characters")
+        if body.intent is not None and request.app.state.runner is None:
+            raise ProviderError("agent_not_configured")
         if not settings.qloo_api_key:
             raise ProviderError("provider_not_configured")
         session_id = await get_session(request, response, create=True)
-        input_hash = digest(body.model_dump_json())
+        input_hash = digest(body.model_dump_json(exclude_none=True))
         async with sessions() as db:
             existing = await db.scalar(
                 select(DiscoveryRecord).where(
@@ -162,45 +188,15 @@ def create_app(settings: Settings | None = None, transport=None) -> FastAPI:
                     )
                 ).all()
             )
-        excluded = set(body.seed_ids) | {
-            UUID(item.entity_id) for item in feedback if item.action != "save"
-        }
-        # Positive signals are deliberately bounded; hard exclusions win.
-        positives = [UUID(item.entity_id) for item in feedback if item.action == "save"]
-        signal_ids = list(dict.fromkeys(body.seed_ids + positives))[:8]
-        qloo = request.app.state.qloo
+        excluded, positives = feedback_signals(body, feedback)
         try:
-            async with asyncio.timeout(settings.discovery_timeout):
-                seeds = await qloo.entities(signal_ids)
-                if {e.id for e in seeds} != set(signal_ids):
-                    raise HTTPException(422, "Some interests could not be resolved")
-                results = await asyncio.gather(
-                    *(qloo.candidates(signal_ids, category, excluded) for category in Category),
-                    return_exceptions=True,
-                )
-        except TimeoutError as exc:
-            raise ProviderError("provider_timeout") from exc
-        items, coverage = [], []
-        failures = []
-        for category, result in zip(Category, results, strict=True):
-            if isinstance(result, ProviderError):
-                failures.append(result)
-                coverage.append(Coverage(category=category, status=result.code))
-            elif isinstance(result, BaseException):
-                raise result
+            if body.intent:
+                async with request.app.state.admission.enter(session_id):
+                    discovery = await request.app.state.discovery.create(body, excluded, positives)
             else:
-                selected, supported = rank(result, seeds, excluded, body.level)
-                items.extend(selected)
-                coverage.append(
-                    Coverage(
-                        category=category,
-                        status="ok" if selected else "empty",
-                        exploration_supported=supported,
-                    )
-                )
-        if len(failures) == len(Category):
-            raise failures[0]
-        discovery = Discovery(id=uuid4(), level=body.level, items=items, coverage=coverage)
+                discovery = await request.app.state.discovery.create(body, excluded, positives)
+        except UnresolvedInterests as exc:
+            raise HTTPException(422, "Some interests could not be resolved") from exc
         async with sessions() as db:
             db.add(
                 DiscoveryRecord(
