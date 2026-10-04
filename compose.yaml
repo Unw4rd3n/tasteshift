@@ -1,0 +1,18 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tasteshift
+      POSTGRES_PASSWORD: tasteshift
+      POSTGRES_DB: tasteshift
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - tasteshift_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tasteshift"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  tasteshift_db:
