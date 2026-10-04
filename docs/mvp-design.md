@@ -85,7 +85,7 @@ Tools exposed to the agent:
 
 - `get_candidates(category, seed_ids, constraints)` — retrieves validated Qloo candidates.
 - `get_entity_details(entity_ids)` — retrieves documented metadata when needed.
-- `get_feedback(session_id)` — reads feedback for the current authorized session.
+- `get_feedback()` — reads feedback for the current authorized session, bound by the server.
 - `select_discoveries(candidate_ids, level)` — applies the deterministic ranking policy.
 - `build_experience(selected_ids, intent)` — returns a plan containing only allowed entities.
 
@@ -98,7 +98,7 @@ Explanations distinguish a returned cultural affinity from descriptive interpret
 ## Architecture
 
 ```text
-Browser / Next.js
+Browser / React + Vite
        |
        | same-origin /api
        v
@@ -111,13 +111,13 @@ FastAPI
   `-- PostgreSQL
 ```
 
-Use Next.js, TypeScript and Tailwind for the frontend; FastAPI, Pydantic and httpx for the backend; PostgreSQL for sessions, runs and feedback. Next.js proxies the backend under the same origin. Provider keys stay on the server.
+Use React, TypeScript, Vite and Tailwind for the frontend; Python, FastAPI, Pydantic and httpx for the backend; PostgreSQL with SQLAlchemy and Alembic for storage. FastAPI serves the compiled frontend and API under the same origin. Provider keys stay on the server. The detailed implementation decisions are in [architecture.md](architecture.md).
 
 Start without accounts. Use an opaque HttpOnly session cookie, enforce ownership on every read and write, and validate request origins for mutations. Store only the selected interests, results and feedback required by the experience. Set a session expiry and clean up expired data.
 
 Begin with synchronous discovery requests and a visible progress state. Set an end-to-end deadline and cancel work on timeout. Introduce durable jobs and polling only if observed latency makes them necessary; do not add a task queue pre-emptively.
 
-Deployment proposal: Next.js frontend on Vercel; FastAPI container and PostgreSQL on Render or an equivalent host. Final hosting depends on available accounts and budget. Verify provider connectivity, same-origin cookies, proxy timeouts and public access before choosing the final deployment.
+Deployment proposal: one Docker app service serving FastAPI and compiled frontend assets, plus managed PostgreSQL on Render, Railway or an equivalent host. Node is used at build time only. Final hosting depends on available accounts and budget. Verify provider connectivity, same-origin cookies, proxy timeouts and public access before choosing the final deployment.
 
 ## App API
 
