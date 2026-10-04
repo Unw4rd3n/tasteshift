@@ -65,7 +65,9 @@ This calls real Qloo search and cross-category Insights. It is skipped during re
 
 ## Agent mode
 
-Leave `MODEL_API_KEY` and `MODEL_NAME` empty until you are ready for paid model calls. Both must be configured in `backend/.env`; the initial adapter uses OpenAI Responses with an explicit model identifier, no automatic SDK retries and response storage disabled. The model is not chosen automatically. `/api/health` reports configuration, not whether credentials work.
+The model adapter uses Gemini Developer API with `gemini-3.5-flash-lite` by default. Create a key in [Google AI Studio](https://aistudio.google.com/apikey) using a **Free Tier project without billing**, then add `GEMINI_API_KEY` to `backend/.env`. `MODEL_NAME` is optional; its default is also shown in `.env.example`. An old `MODEL_API_KEY` does not enable the agent and is not reused as a Gemini key.
+
+This model currently has a [free API tier](https://ai.google.dev/gemini-api/docs/pricing), subject to project quotas. Code cannot detect your billing tier or prevent charges on an already billed Google project. There is no fallback to OpenAI, Vertex AI or another model, and automatic SDK retries are disabled. Free-tier inputs may be used to improve Google's products; do not send sensitive information. See [Gemini setup](docs/gemini-setup.md). `/api/health` reports configuration, not whether credentials or quota work.
 
 Add an optional intent to a normal discovery request:
 
@@ -86,7 +88,7 @@ Responses include `evidence` and an `agent` section with status, steps, model/pr
 
 See [agent implementation and limitations](docs/agent-implementation.md) before enabling it publicly. It currently inspects cached Qloo pools, not an open-ended search; unsupported free-text requirements are handled by prompting for clarification, not a verified semantic classifier.
 
-After both keys and a model are configured, the separate live check is explicitly opt-in and may incur charges:
+After Qloo and Gemini keys are configured, the separate live check is explicitly opt-in. It consumes quota and can incur charges if your Google project has billing enabled:
 
 ```sh
 cd backend

@@ -6,9 +6,6 @@ from uuid import UUID, uuid4
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request, Response
-from openai import AsyncOpenAI
-from pydantic_ai.models.openai import OpenAIResponsesModel
-from pydantic_ai.providers.openai import OpenAIProvider
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -22,6 +19,7 @@ from tasteshift.domain import (
     DiscoveryRequest,
     FeedbackRequest,
 )
+from tasteshift.model import gemini_model
 from tasteshift.qloo import ProviderError, QlooClient
 from tasteshift.storage import DiscoveryRecord, FeedbackRecord, SessionRecord
 
@@ -48,18 +46,8 @@ def create_app(settings: Settings | None = None, transport=None, *, agent_model=
             async with AsyncExitStack() as stack:
                 stack.push_async_callback(engine.dispose)
                 model = agent_model
-                if model is None and settings.model_name and settings.model_api_key:
-                    model_client = await stack.enter_async_context(
-                        AsyncOpenAI(
-                            api_key=settings.model_api_key.get_secret_value(),
-                            base_url="https://api.openai.com/v1",
-                            max_retries=0,
-                            timeout=settings.discovery_timeout,
-                        )
-                    )
-                    model = OpenAIResponsesModel(
-                        settings.model_name, provider=OpenAIProvider(openai_client=model_client)
-                    )
+                if model is None and settings.gemini_api_key:
+                    model = await stack.enter_async_context(gemini_model(settings))
                 app.state.runner = AgentRunner(settings, model) if model is not None else None
                 app.state.admission = AgentAdmission(settings)
                 app.state.discovery = DiscoveryService(settings, app.state.qloo, app.state.runner)

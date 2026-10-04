@@ -283,9 +283,9 @@ async def test_agent_respects_feedback_and_intent_idempotency(agent_client, inte
 
 
 def test_blank_env_example_keeps_integrations_unconfigured():
-    settings = Settings(_env_file=None, model_name="", model_api_key=" ", qloo_api_key="")
-    assert settings.model_name is None
-    assert settings.model_api_key is None
+    settings = Settings(_env_file=None, model_name="", gemini_api_key=" ", qloo_api_key="")
+    assert settings.model_name == "gemini-3.5-flash-lite"
+    assert settings.gemini_api_key is None
     assert settings.qloo_api_key is None
 
 

@@ -10,20 +10,16 @@ from tasteshift.qloo import QlooClient
 
 @pytest.mark.skipif(os.environ.get("RUN_AGENT_LIVE") != "1", reason="Live agent check is opt-in")
 async def test_live_grounded_agent_plan(monkeypatch):
-    from openai import AsyncOpenAI
     from pydantic_ai import models
-    from pydantic_ai.models.openai import OpenAIResponsesModel
-    from pydantic_ai.providers.openai import OpenAIProvider
 
     from tasteshift.agent import AgentRunner
     from tasteshift.discovery import DiscoveryService
     from tasteshift.domain import DiscoveryRequest, Intent
+    from tasteshift.model import gemini_model
 
     settings = Settings()
-    assert settings.qloo_api_key, "Configure QLOO_API_KEY before running this paid live check"
-    assert settings.model_api_key and settings.model_name, (
-        "Configure MODEL_API_KEY and MODEL_NAME before running this paid live check"
-    )
+    assert settings.qloo_api_key, "Configure QLOO_API_KEY before running this live check"
+    assert settings.gemini_api_key, "Configure GEMINI_API_KEY before running this live check"
     monkeypatch.setattr(models, "ALLOW_MODEL_REQUESTS", True)
     async with httpx.AsyncClient(
         base_url=settings.qloo_base_url, timeout=settings.qloo_timeout, follow_redirects=False
@@ -35,15 +31,7 @@ async def test_live_grounded_agent_plan(monkeypatch):
             assert artists, "A live interest search was empty"
             ids.append(artists[0].id)
         assert len(set(ids)) == 3
-        async with AsyncOpenAI(
-            api_key=settings.model_api_key.get_secret_value(),
-            base_url="https://api.openai.com/v1",
-            max_retries=0,
-            timeout=settings.discovery_timeout,
-        ) as sdk:
-            model = OpenAIResponsesModel(
-                settings.model_name, provider=OpenAIProvider(openai_client=sdk)
-            )
+        async with gemini_model(settings) as model:
             service = DiscoveryService(settings, qloo, AgentRunner(settings, model))
             result = await service.create(
                 DiscoveryRequest(

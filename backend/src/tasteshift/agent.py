@@ -8,6 +8,8 @@ from time import monotonic
 from typing import Annotated, Literal
 from uuid import UUID
 
+import httpx
+import httpx2
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.exceptions import ModelAPIError, UnexpectedModelBehavior, UsageLimitExceeded
@@ -240,7 +242,6 @@ class AgentRunner:
                     ),
                     model_settings={
                         "max_tokens": self.settings.agent_output_tokens,
-                        "openai_store": False,
                     },
                 )
             output = result.output
@@ -265,7 +266,7 @@ class AgentRunner:
                     ],
                     **meta,
                 )
-        except TimeoutError:
+        except (TimeoutError, httpx.TimeoutException, httpx2.TimeoutException):
             answer = AgentResult(status="fallback_timeout", **meta)
         except UsageLimitExceeded:
             answer = AgentResult(status="fallback_budget", **meta)
@@ -278,7 +279,7 @@ class AgentRunner:
                 else ("fallback_provider_error")
             )
             answer = AgentResult(status=status, **meta)
-        except ModelAPIError:
+        except (ModelAPIError, httpx.RequestError, httpx2.RequestError):
             answer = AgentResult(status="fallback_provider_error", **meta)
         answer.model_requests = usage.requests
         answer.tool_calls = usage.tool_calls

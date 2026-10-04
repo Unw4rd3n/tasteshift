@@ -94,7 +94,7 @@ async def app(tmp_path, fake):
     settings = Settings(
         _env_file=None,
         qloo_api_key=SecretStr("test-key-never-real"),
-        model_api_key=None,
+        gemini_api_key=None,
         model_name=None,
         database_url=SecretStr(
             os.environ.get("TEST_DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path}/test.db")
@@ -137,7 +137,7 @@ def agent_client(app, fake):
         settings = Settings(
             _env_file=None,
             qloo_api_key=app.state.qloo.key,
-            model_api_key=None,
+            gemini_api_key=None,
             model_name=None,
             database_url=app.state.engine.url.render_as_string(hide_password=False),
             **overrides,
