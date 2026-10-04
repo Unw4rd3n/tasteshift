@@ -1,6 +1,18 @@
 name: Backend
 on: [push, pull_request]
 jobs:
+  agent-spike:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: research/agent-spike
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --python 3.12
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest -q -W error
   check:
     runs-on: ubuntu-latest
     services:

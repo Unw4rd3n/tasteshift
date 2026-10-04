@@ -77,4 +77,6 @@ Qloo calls use `https://hackathon.api.qloo.com`, `X-Api-Key`, `/search`, `/entit
 
 The first migration stores discovery items inside a JSON snapshot rather than separate item/evidence tables. This keeps the initial slice small; the snapshot can be split when explainability and experience planning are added. FastAPI currently exposes API documentation, not a finished consumer interface.
 
-See [MVP design](docs/mvp-design.md) and [architecture](docs/architecture.md).
+See [MVP design](docs/mvp-design.md), [architecture](docs/architecture.md), and [agent research and integration plan](docs/agent-design.md).
+
+An isolated [Pydantic AI experiment](research/agent-spike/README.md) verifies typed tool calls, ID/evidence validation and execution limits without API keys. It is not yet connected to the backend.
