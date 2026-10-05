@@ -6,7 +6,7 @@ TasteShift starts with a few favourite artists, films or books and finds connect
 
 ## Current state
 
-The Python backend supports entity search, discovery, guest sessions, saved selections and feedback. A Pydantic AI agent can inspect candidates, request eligible entity details, and produce a validated introduction plan. Its integration is tested with scripted models and mocked HTTP responses, not live providers. The frontend, Qloo explainability integration and public deployment are still pending. No live Qloo request has been verified yet; access is awaiting an API key.
+The Python backend supports entity search, discovery, guest sessions, saved selections and feedback. A Pydantic AI agent can inspect candidates, request eligible entity details, and produce a validated introduction plan. Tests cover scripted models and mocked provider responses; a separate evaluation also exercises live Gemini against synthetic Qloo data. The frontend, Qloo explainability integration and public deployment are still pending. No live Qloo request has been verified yet; access is awaiting an API key.
 
 Test provider responses are synthetic and used only in tests. Runtime never silently substitutes fixture recommendations for Qloo.
 
@@ -54,6 +54,8 @@ TEST_DATABASE_URL=postgresql+asyncpg://tasteshift:tasteshift@localhost:5432/tast
 ```
 
 The suite resets tables in that test database; never point it at data you need. Test database names must end in `_test`.
+
+The [agent evaluation](docs/agent-evaluation.md) contains 28 reproducible scenarios. Its offline cases run in the normal test suite. From `backend`, `uv run python -m tests.agent_eval` prints a per-case report without model calls. `uv run python -m tests.agent_eval --live` explicitly enables live Gemini for eight selected cases, always with synthetic Qloo responses. It consumes quota and may incur charges on a billed Google project. It stops at the first model-provider failure; there are no automatic retries. Use repeatable `--case ID` options to run a smaller selection.
 
 After the Qloo key arrives, run the opt-in live provider check from `backend`:
 
