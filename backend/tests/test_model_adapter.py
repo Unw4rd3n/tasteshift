@@ -117,8 +117,12 @@ async def test_gemini_full_tool_roundtrip(monkeypatch, agent_client, intent_body
         calls.append(payload)
         if len(calls) == 1:
             parts = [
-                {"functionCall": {"name": "get_candidates", "args": {"category": c}}}
-                for c in ["artist", "movie", "book"]
+                {
+                    "functionCall": {
+                        "name": "get_candidates",
+                        "args": {"categories": ["artist", "movie", "book"]},
+                    }
+                }
             ]
         elif len(calls) == 2:
             parts = [

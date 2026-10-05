@@ -28,13 +28,10 @@ def scripted_model(fault=None, *, details=False, clarification=False):
             )
         if not returns:
             return (
-                ModelResponse(parts=[ToolCallPart("get_candidates", {"category": "place"})])
+                ModelResponse(parts=[ToolCallPart("get_candidates", {"categories": ["place"]})])
                 if (fault == "invalid_category")
                 else ModelResponse(
-                    parts=[
-                        ToolCallPart("get_candidates", {"category": c}, tool_call_id=c)
-                        for c in categories
-                    ]
+                    parts=[ToolCallPart("get_candidates", {"categories": categories})]
                 )
             )
         shortlist = next((p.content for p in returns if p.tool_name == "get_shortlist"), None)
@@ -83,7 +80,7 @@ async def test_agent_plan_persists_and_replay_makes_no_calls(agent_client, inten
         agent = payload["agent"]
         assert agent["status"] == "planned"
         assert agent["model_requests"] == 3
-        assert agent["tool_calls"] == 4
+        assert agent["tool_calls"] == 2
         assert agent["qloo_attempts"] == len(fake.calls) == 4
         assert len(agent["steps"]) == 3
         entities = {item["entity"]["id"]: item["entity"] for item in payload["items"]}

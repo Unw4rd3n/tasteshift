@@ -29,10 +29,11 @@ from tasteshift.domain import (
 )
 from tasteshift.qloo import ProviderError
 
-PROMPT_VERSION = "experience-v1"
+PROMPT_VERSION = "experience-v2"
 INSTRUCTIONS = """
 You plan introductions to unfamiliar music, films and books from confirmed interests.
 Use get_candidates, then get_shortlist, before producing an experience plan.
+Pass all requested categories together in each of these calls, not one call per category.
 get_candidates exposes a cached Qloo pool; get_shortlist exposes server-ranked eligible choices.
 get_details can retrieve extra metadata for shortlisted IDs, within a shared provider budget.
 You cannot replace the shortlist, invent entities or modify exclusions.
@@ -123,21 +124,28 @@ def build_agent(model: Model) -> Agent[AgentContext, Output]:
     )
 
     @agent.tool
-    async def get_candidates(ctx: RunContext[AgentContext], category: Category) -> dict:
-        """Inspect the cached Qloo candidates for an allowed category."""
-        if category not in ctx.deps.intent.categories:
-            raise ModelRetry("Choose a category requested by the user")
-        ctx.deps.fetched.add(category)
-        candidates = ctx.deps.pools.get(category, [])
-        # Include the canonical shortlist even if ranking selected beyond the first rows.
-        selected = [i.entity for i in ctx.deps.discovery.items if i.entity.category == category]
-        entities = {e.id: e for e in selected}
-        for candidate in candidates:
-            if candidate.entity.id not in ctx.deps.excluded:
-                entities.setdefault(candidate.entity.id, candidate.entity)
-            if len(entities) >= 4:
-                break
-        return {"category": category, "items": [entity_view(e) for e in entities.values()]}
+    async def get_candidates(ctx: RunContext[AgentContext], categories: Categories) -> dict:
+        """Inspect all requested cached Qloo categories together in one call."""
+        if len(set(categories)) != len(categories) or not set(categories) <= set(
+            ctx.deps.intent.categories
+        ):
+            raise ModelRetry("Choose distinct categories requested by the user")
+        ctx.deps.fetched.update(categories)
+        groups = []
+        for category in categories:
+            candidates = ctx.deps.pools.get(category, [])
+            # Include canonical ranked choices, even beyond the first provider rows.
+            selected = [i.entity for i in ctx.deps.discovery.items if i.entity.category == category]
+            entities = {e.id: e for e in selected}
+            for candidate in candidates:
+                if candidate.entity.id not in ctx.deps.excluded:
+                    entities.setdefault(candidate.entity.id, candidate.entity)
+                if len(entities) >= 4:
+                    break
+            groups.append(
+                {"category": category, "items": [entity_view(e) for e in entities.values()]}
+            )
+        return {"categories": groups}
 
     @agent.tool
     async def get_shortlist(ctx: RunContext[AgentContext], categories: Categories) -> dict:
