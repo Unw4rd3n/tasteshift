@@ -6,7 +6,7 @@ TasteShift starts with a few favourite artists, films or books and finds connect
 
 ## Current state
 
-The Python backend supports entity search, discovery, guest sessions, saved selections and feedback. A Pydantic AI agent can inspect candidates, request eligible entity details, and produce a validated introduction plan. Tests cover scripted models and mocked provider responses; a separate evaluation also exercises live Gemini against synthetic Qloo data. The frontend, Qloo explainability integration and public deployment are still pending. No live Qloo request has been verified yet; access is awaiting an API key.
+The Python backend supports entity search, discovery, guest sessions, saved selections and feedback. A Pydantic AI agent can inspect candidates, request eligible entity details, and produce a validated introduction plan. Live Qloo search, cross-category Insights and the full Qloo + Gemini agent path were verified on 6 October 2026, including PostgreSQL persistence and idempotent API replay. See [live validation](docs/qloo-live-validation.md). The frontend, Qloo explainability integration and public deployment are still pending. This verifies integration, not recommendation quality; tag-distance exploration was explicitly disabled for the first real profile because metadata was insufficient.
 
 Test provider responses are synthetic and used only in tests. Runtime never silently substitutes fixture recommendations for Qloo.
 

@@ -95,3 +95,40 @@ def test_unsafe_urls_are_not_exposed():
 def test_wrong_category_is_rejected():
     with pytest.raises(ProviderError, match="provider_schema"):
         parse_entity(entity(1, "movie"), Category.artist)
+
+
+@pytest.mark.parametrize("category", list(Category))
+def test_live_insights_type_shape(category):
+    # Synthetic minimal row matching the shape observed on the live hackathon API.
+    raw = entity(1, category.value)
+    del raw["types"]
+    raw.update(type="urn:entity", subtype=category.urn)
+    raw["properties"]["description"] = "Provider metadata"
+    parsed = parse_entity(raw, category)
+    assert parsed.category == category
+    assert parsed.description == "Provider metadata"
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"type": "urn:entity", "subtype": "urn:entity:book"},
+        {"type": "urn:tag", "subtype": "urn:entity:artist"},
+        {"type": "urn:entity", "subtype": "urn:entity:unknown"},
+        {"type": "urn:entity"},
+        {"types": "urn:entity:artist"},
+    ],
+)
+def test_insights_category_boundary(fields):
+    raw = entity(1)
+    del raw["types"]
+    raw.update(fields)
+    with pytest.raises(ProviderError, match="provider_schema"):
+        parse_entity(raw, Category.artist)
+
+
+def test_conflicting_lookup_and_insights_types_are_rejected():
+    raw = entity(1, "artist")
+    raw.update(type="urn:entity", subtype="urn:entity:movie")
+    with pytest.raises(ProviderError, match="provider_schema"):
+        parse_entity(raw)

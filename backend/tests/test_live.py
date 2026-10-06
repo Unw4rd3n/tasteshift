@@ -46,6 +46,14 @@ async def test_live_grounded_agent_plan(monkeypatch):
             )
             allowed = {item.entity.id for item in result.items}
             assert all(step.entity_id in allowed for step in result.agent.steps)
+            assert not allowed.intersection(ids)
+            evidence = {item.id: item.entity_id for item in result.evidence}
+            assert all(evidence[step.evidence_id] == step.entity_id for step in result.agent.steps)
+            entities = {item.entity.id: item.entity for item in result.items}
+            assert {entities[step.entity_id].category for step in result.agent.steps} == set(
+                Category
+            )
+            assert len(result.agent.steps) == 3
             assert result.agent.model_requests <= settings.agent_request_limit
             assert result.agent.qloo_attempts <= settings.qloo_attempt_limit
 

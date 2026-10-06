@@ -22,9 +22,15 @@ def safe_url(value) -> HttpUrl | None:
 
 def parse_entity(raw: dict, category: Category | None = None) -> Entity:
     try:
-        types = raw["types"]
+        # Lookup rows use types; live Insights rows use type + subtype.
+        types = raw.get("types")
+        subtype = raw.get("subtype")
+        if types is None and raw.get("type") == "urn:entity" and isinstance(subtype, str):
+            types = [subtype]
         if not isinstance(types, list):
             raise ValueError("Invalid types")
+        if subtype is not None and subtype not in types:
+            raise ValueError("Conflicting entity types")
         detected = next((kind for kind in Category if kind.urn in types), None)
         if detected is None or (category is not None and category.urn not in types):
             raise ValueError("Unsupported category")
@@ -35,7 +41,11 @@ def parse_entity(raw: dict, category: Category | None = None) -> Entity:
             id=raw["entity_id"],
             name=raw["name"],
             category=category or detected,
-            description=raw.get("short_description") or raw.get("description"),
+            description=(
+                raw.get("short_description")
+                or raw.get("description")
+                or properties.get("description")
+            ),
             image_url=safe_url(image.get("url")),
             website_url=safe_url(properties.get("website")),
             tags=sorted(set(tags)),
