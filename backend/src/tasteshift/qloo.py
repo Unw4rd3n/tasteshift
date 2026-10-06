@@ -4,7 +4,7 @@ from uuid import UUID
 import httpx
 from pydantic import HttpUrl, TypeAdapter, ValidationError
 
-from tasteshift.domain import Candidate, Category, Entity
+from tasteshift.domain import Candidate, Category, Entity, SignalContribution, TasteTag
 
 
 class ProviderError(Exception):
@@ -18,6 +18,24 @@ def safe_url(value) -> HttpUrl | None:
         return TypeAdapter(HttpUrl).validate_python(value) if value else None
     except ValidationError:
         return None
+
+
+def parse_contributions(query: dict, seeds: list[UUID]) -> tuple[list[SignalContribution], str]:
+    """Optional provider diagnostics must never replace the validated interest set."""
+    raw = query.get("explainability")
+    if raw is None or (isinstance(raw, dict) and raw.get("warning")):
+        return [], "unavailable"
+    try:
+        rows = raw["signal.interests.entities"]
+        if not isinstance(rows, list):
+            raise ValueError("Invalid contributions")
+        items = [SignalContribution.model_validate(row) for row in rows]
+        ids = [item.entity_id for item in items]
+        if len(set(ids)) != len(ids) or not set(ids) <= set(seeds):
+            raise ValueError("Unknown or duplicate signal")
+        return items, "available" if items else "unavailable"
+    except (KeyError, TypeError, ValueError, ValidationError):
+        return [], "invalid"
 
 
 def parse_entity(raw: dict, category: Category | None = None) -> Entity:
@@ -103,6 +121,35 @@ class QlooClient:
             raise ProviderError("provider_schema")
         return [parse_entity(item, category) for item in results]
 
+    async def taste_tags(self, seeds: list[UUID]) -> list[TasteTag]:
+        payload = await self.request(
+            "/v2/insights",
+            {
+                "filter.type": "urn:tag",
+                "signal.interests.entities": ",".join(map(str, seeds)),
+                "take": 50,
+            },
+        )
+        try:
+            rows = payload["results"]["tags"]
+            if not isinstance(rows, list) or len(rows) > 50:
+                raise ValueError("Invalid tags")
+            tags = {}
+            for row in rows:
+                tag = TasteTag(
+                    id=row["tag_id"],
+                    name=row["name"],
+                    affinity=(row.get("query") or {}).get("affinity"),
+                )
+                # Cultural descriptors only: no audience or demographic inference.
+                if tag.id.startswith(
+                    ("urn:tag:genre:", "urn:tag:style:", "urn:tag:theme:", "urn:tag:keyword:")
+                ):
+                    tags.setdefault(tag.id, tag)
+            return list(tags.values())
+        except (KeyError, AttributeError, TypeError, ValueError, ValidationError) as exc:
+            raise ProviderError("provider_schema") from exc
+
     async def candidates(
         self, seeds: list[UUID], category: Category, excluded: set[UUID]
     ) -> list[Candidate]:
@@ -110,6 +157,7 @@ class QlooClient:
             "filter.type": category.urn,
             "signal.interests.entities": ",".join(map(str, seeds)),
             "take": 50,
+            "feature.explainability": "true",
         }
         if excluded:
             params["filter.exclude.entities"] = ",".join(sorted(map(str, excluded)))
@@ -118,12 +166,18 @@ class QlooClient:
         if not isinstance(results, dict) or not isinstance(results.get("entities"), list):
             raise ProviderError("provider_schema")
         try:
-            return [
-                Candidate(
-                    entity=parse_entity(item, category),
-                    affinity=(item.get("query") or {}).get("affinity"),
+            candidates = []
+            for item in results["entities"]:
+                query = item.get("query") or {}
+                contributions, status = parse_contributions(query, seeds)
+                candidates.append(
+                    Candidate(
+                        entity=parse_entity(item, category),
+                        affinity=query.get("affinity"),
+                        contributions=contributions,
+                        explainability_status=status,
+                    )
                 )
-                for item in results["entities"]
-            ]
+            return candidates
         except (ValidationError, AttributeError, TypeError) as exc:
             raise ProviderError("provider_schema") from exc

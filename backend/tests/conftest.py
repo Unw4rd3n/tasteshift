@@ -133,7 +133,7 @@ def agent_client(app, fake):
     from .test_agent import scripted_model
 
     @asynccontextmanager
-    async def start(model=None, **overrides):
+    async def start(model=None, *, qloo_handler=None, **overrides):
         settings = Settings(
             _env_file=None,
             qloo_api_key=app.state.qloo.key,
@@ -143,7 +143,9 @@ def agent_client(app, fake):
             **overrides,
         )
         application = create_app(
-            settings, httpx.MockTransport(fake), agent_model=model or scripted_model()
+            settings,
+            httpx.MockTransport(qloo_handler or fake),
+            agent_model=model or scripted_model(),
         )
         async with application.router.lifespan_context(application):
             async with httpx.AsyncClient(

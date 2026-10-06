@@ -248,7 +248,22 @@ def create_app(settings: Settings | None = None, transport=None, *, agent_model=
                         action=body.action.value,
                     )
                 )
-            await db.commit()
+            try:
+                await db.commit()
+            except IntegrityError:
+                # Another request may have inserted this same feedback key after our read.
+                await db.rollback()
+                existing = await db.scalar(
+                    select(FeedbackRecord).where(
+                        FeedbackRecord.session_id == session_id,
+                        FeedbackRecord.entity_id == str(body.entity_id),
+                    )
+                )
+                if existing is None:
+                    raise
+                existing.action = body.action.value
+                existing.discovery_id = str(id)
+                await db.commit()
         return {"status": "saved"}
 
     return app

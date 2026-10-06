@@ -7,7 +7,12 @@ POOLS = {Level.safe: 0.25, Level.curious: 0.5, Level.experimental: 0.75, Level.w
 
 
 def rank(
-    candidates: list[Candidate], seeds: list[Entity], excluded: set[UUID], level: Level
+    candidates: list[Candidate],
+    seeds: list[Entity],
+    excluded: set[UUID],
+    level: Level,
+    *,
+    profile_tags: set[str] | None = None,
 ) -> tuple[list[DiscoveryItem], bool]:
     unique = {}
     for candidate in candidates:
@@ -17,22 +22,38 @@ def rank(
     available = list(unique.values())
     if available and all(candidate.affinity is not None for candidate in available):
         available.sort(key=lambda c: (-c.affinity, str(c.entity.id)))
-    seed_tags = {tag for seed in seeds for tag in seed.tags}
-    supported = bool(seed_tags) and bool(available) and all(c.entity.tags for c in available)
-    selected: list[DiscoveryItem] = []
+    seed_tags = {tag for seed in seeds for tag in seed.tags} | (profile_tags or set())
     positions = {c.entity.id: i for i, c in enumerate(available)}
     denominator = max(len(available) - 1, 1)
+    tagged = [
+        c for c in available if c.entity.tags and 1 - positions[c.entity.id] / denominator >= 0.25
+    ]
+    # Compare overlap with the reference profile, not total upstream tag count.
+    # A film with hundreds of unrelated keywords must not look novel just for that reason.
+    distances = (
+        {c.entity.id: 1 - len(set(c.entity.tags) & seed_tags) / len(seed_tags) for c in tagged}
+        if seed_tags
+        else {}
+    )
+    distinct = sorted(set(distances.values()))
+    supported = len(tagged) >= 2 and len(distinct) >= 2
+    novelty = (
+        {id: distinct.index(distance) / (len(distinct) - 1) for id, distance in distances.items()}
+        if supported
+        else {}
+    )
+    selected: list[DiscoveryItem] = []
     if supported:
+        # Missing metadata is unknown, never maximum novelty.
+        available = tagged
         count = max(2, int(len(available) * POOLS[level]))
         available = available[:count]
-        # Keep an affinity-rank floor even in Wild; never equate surprise with the tail.
-        available = [c for c in available if 1 - positions[c.entity.id] / denominator >= 0.25]
     while available and len(selected) < 2:
 
         def score(candidate: Candidate):
             relevance = 1 - positions[candidate.entity.id] / denominator
             tags = set(candidate.entity.tags)
-            distance = 1 - len(tags & seed_tags) / len(tags | seed_tags) if supported else 0
+            distance = novelty[candidate.entity.id] if supported else 0
             previous_tags = {t for item in selected for t in item.entity.tags}
             repetition = (
                 len(tags & previous_tags) / len(tags | previous_tags)

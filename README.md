@@ -6,7 +6,7 @@ TasteShift starts with a few favourite artists, films or books and finds connect
 
 ## Current state
 
-The Python backend supports entity search, discovery, guest sessions, saved selections and feedback. A Pydantic AI agent can inspect candidates, request eligible entity details, and produce a validated introduction plan. Live Qloo search, cross-category Insights and the full Qloo + Gemini agent path were verified on 6 October 2026, including PostgreSQL persistence and idempotent API replay. See [live validation](docs/qloo-live-validation.md). The frontend, Qloo explainability integration and public deployment are still pending. This verifies integration, not recommendation quality; tag-distance exploration was explicitly disabled for the first real profile because metadata was insufficient.
+The Python backend supports entity search, discovery, guest sessions, saved selections and feedback. A Pydantic AI agent can inspect candidates, request eligible entity details, and produce a validated introduction plan. Live Qloo search, cross-category Insights and the full Qloo + Gemini agent path were verified on 6 October 2026, including PostgreSQL persistence and idempotent API replay. Taste Analysis now supplies a separate cultural tag profile when lookup metadata is missing; validated Qloo explainability contributes factual input-attribution explanations. See [backend review](docs/backend-review.md). The frontend and public deployment are still pending. Integration tests do not prove recommendation quality.
 
 Test provider responses are synthetic and used only in tests. Runtime never silently substitutes fixture recommendations for Qloo.
 
@@ -37,6 +37,8 @@ Open `http://localhost:8000/docs` for the interactive API. `/api/health` checks 
 - `POST /api/discoveries/{id}/feedback` with `entity_id` and `action` (`save`, `not_for_me`, `already_know`). Requires the same session cookie and Origin header.
 
 Reusing an idempotency key returns the saved selection; changing its input returns 409. New feedback affects new selections, not already saved results. Missing provider metadata disables tag-distance exploration explicitly through `coverage.exploration_supported`. Factual explanations identify the combined-interest query, not an unverified causal connection to an individual favourite.
+
+`taste_profile` identifies the source, original signal IDs, status and cultural tags. `rank-tags-v2` ranks relative reference-tag overlap within the relevance-qualified pool; missing tags are never treated as maximum novelty. If overlap does not vary, exploration is disabled. Modes can still return the same objects. Optional profile failures preserve baseline results, and their requests share the existing Qloo budget. Agent `evidence` includes validated input contributions and explicit explainability availability; normalized contribution scores are not liking probabilities. Unknown discovery/feedback fields return 422 instead of being silently ignored.
 
 ## Tests
 

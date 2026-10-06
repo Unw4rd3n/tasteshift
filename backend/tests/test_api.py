@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 import pytest
 from pydantic import SecretStr
@@ -10,6 +12,42 @@ from tasteshift.storage import FeedbackRecord
 
 async def discover(client, body, key="first"):
     return await client.post("/api/discoveries", json=body, headers={"Idempotency-Key": key})
+
+
+async def test_unknown_discovery_filter_is_not_silently_ignored(client, body, fake):
+    response = await discover(client, {**body, "duration_max": 90})
+    assert response.status_code == 422
+    assert not fake.calls
+
+
+async def test_unknown_feedback_fields_are_rejected(client, body):
+    payload = (await discover(client, body)).json()
+    response = await client.post(
+        f"/api/discoveries/{payload['id']}/feedback",
+        json={
+            "entity_id": payload["items"][0]["entity"]["id"],
+            "action": "save",
+            "weight": 100,
+        },
+    )
+    assert response.status_code == 422
+
+
+async def test_concurrent_feedback_creates_one_record(client, body, app):
+    payload = (await discover(client, body)).json()
+    entity_id = payload["items"][0]["entity"]["id"]
+    replies = await asyncio.gather(
+        *[
+            client.post(
+                f"/api/discoveries/{payload['id']}/feedback",
+                json={"entity_id": entity_id, "action": "save"},
+            )
+            for _ in range(8)
+        ]
+    )
+    assert all(reply.status_code == 200 for reply in replies)
+    async with app.state.engine.connect() as db:
+        assert await db.scalar(select(func.count()).select_from(FeedbackRecord)) == 1
 
 
 async def test_health_ready_and_search(client):

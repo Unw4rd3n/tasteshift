@@ -1,3 +1,4 @@
+import json
 import os
 
 import httpx
@@ -6,6 +7,54 @@ import pytest
 from tasteshift.config import Settings
 from tasteshift.domain import Category
 from tasteshift.qloo import QlooClient
+
+
+@pytest.mark.skipif(os.environ.get("RUN_QLOO_LIVE") != "1", reason="Live Qloo check is opt-in")
+async def test_live_profile_explainability_and_exploration():
+    from tasteshift.domain import Level
+    from tasteshift.ranking import rank
+
+    settings = Settings()
+    assert settings.qloo_api_key
+    async with httpx.AsyncClient(
+        base_url=settings.qloo_base_url, timeout=settings.qloo_timeout, follow_redirects=False
+    ) as http:
+        qloo = QlooClient(http, settings.qloo_api_key.get_secret_value())
+        ids = [
+            (await qloo.search(name, Category.artist))[0].id
+            for name in ["David Bowie", "Radiohead", "Bjork"]
+        ]
+        seeds = await qloo.entities(ids)
+        tags = await qloo.taste_tags(ids)
+        assert tags, "Example profile returned no cultural tags"
+        ref = {tag.id for tag in tags}
+        summary = {"profile_tags": len(tags), "categories": []}
+        for category in Category:
+            pool = await qloo.candidates(ids, category, set(ids))
+            modes = []
+            for level in Level:
+                items, supported = rank(pool, seeds, set(ids), level, profile_tags=ref)
+                assert len({i.entity.id for i in items}) == len(items)
+                assert not {i.entity.id for i in items}.intersection(ids)
+                modes.append(
+                    {
+                        "level": level.value,
+                        "supported": supported,
+                        "names": [i.entity.name for i in items],
+                    }
+                )
+            for candidate in pool:
+                assert {c.entity_id for c in candidate.contributions} <= set(ids)
+            summary["categories"].append(
+                {
+                    "category": category.value,
+                    "modes": modes,
+                    "explainability_available": sum(
+                        c.explainability_status == "available" for c in pool
+                    ),
+                }
+            )
+        print(json.dumps(summary, ensure_ascii=False))
 
 
 @pytest.mark.skipif(os.environ.get("RUN_AGENT_LIVE") != "1", reason="Live agent check is opt-in")

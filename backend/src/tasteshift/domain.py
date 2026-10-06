@@ -32,9 +32,29 @@ class Entity(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
+class SignalContribution(BaseModel):
+    entity_id: UUID
+    score: float = Field(ge=0, le=1, allow_inf_nan=False)
+
+
+class TasteTag(BaseModel):
+    id: str = Field(pattern=r"^urn:tag:", max_length=500)
+    name: str = Field(min_length=1, max_length=200)
+    affinity: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
+
+
+class TasteProfile(BaseModel):
+    source: Literal["qloo_tag_insights"] = "qloo_tag_insights"
+    status: str
+    signal_ids: list[UUID]
+    tags: list[TasteTag] = Field(default_factory=list, max_length=50)
+
+
 class Candidate(BaseModel):
     entity: Entity
     affinity: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
+    contributions: list[SignalContribution] = Field(default_factory=list)
+    explainability_status: Literal["available", "unavailable", "invalid"] = "unavailable"
 
 
 class Intent(BaseModel):
@@ -62,6 +82,7 @@ class Intent(BaseModel):
 
 
 class DiscoveryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     seed_ids: list[UUID] = Field(min_length=3, max_length=5)
     level: Level = Level.curious
     intent: Intent | None = None
@@ -91,6 +112,9 @@ class Evidence(BaseModel):
     source: Literal["qloo_combined_interests"] = "qloo_combined_interests"
     signal_ids: list[UUID]
     shared_tags: list[str]
+    contributions: list[SignalContribution] = Field(default_factory=list)
+    explainability_status: Literal["available", "unavailable", "invalid"] = "unavailable"
+    shared_tags_source: Literal["entity_metadata", "qloo_tag_insights"] = "entity_metadata"
 
 
 class ExperienceStep(BaseModel):
@@ -129,7 +153,8 @@ class Discovery(BaseModel):
     coverage: list[Coverage]
     data_mode: str = "live"
     explanation_mode: str = "factual"
-    policy_version: str = "rank-tags-v1"
+    policy_version: str = "rank-tags-v2"
+    taste_profile: TasteProfile | None = None
     evidence: list[Evidence] = Field(default_factory=list)
     agent: AgentResult | None = None
 
@@ -141,5 +166,6 @@ class FeedbackAction(StrEnum):
 
 
 class FeedbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     entity_id: UUID
     action: FeedbackAction

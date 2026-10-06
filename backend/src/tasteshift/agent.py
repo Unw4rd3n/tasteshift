@@ -162,7 +162,12 @@ def build_agent(model: Model) -> Agent[AgentContext, Output]:
         ctx.deps.shortlisted.update(i.entity.id for i in items)
         return {
             "items": [
-                {**entity_view(i.entity), "evidence_id": evidence[i.entity.id]} for i in items
+                {
+                    **entity_view(i.entity),
+                    "evidence_id": evidence[i.entity.id],
+                    "explanation": i.explanation[:240],
+                }
+                for i in items
             ],
             "missing_categories": [
                 c for c in categories if not any(i.entity.category == c for i in items)
