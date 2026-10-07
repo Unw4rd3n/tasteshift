@@ -6,7 +6,9 @@ TasteShift starts with a few favourite artists, films or books and finds connect
 
 ## Current state
 
-The Python backend supports entity search, discovery, guest sessions, saved selections and feedback. A Pydantic AI agent can inspect candidates, request eligible entity details, and produce a validated introduction plan. Live Qloo search, cross-category Insights and the full Qloo + Gemini agent path were verified on 6 October 2026, including PostgreSQL persistence and idempotent API replay. Taste Analysis now supplies a separate cultural tag profile when lookup metadata is missing; validated Qloo explainability contributes factual input-attribution explanations. See [backend review](docs/backend-review.md). The frontend and public deployment are still pending. Integration tests do not prove recommendation quality.
+The Python backend supports entity search, discovery, guest sessions, saved selections and feedback. A Pydantic AI agent can inspect candidates, request eligible entity details, and produce a validated introduction plan. Live Qloo search, cross-category Insights and the full Qloo + Gemini agent path were verified on 6 October 2026, including PostgreSQL persistence and idempotent API replay. Taste Analysis supplies a separate cultural tag profile when lookup metadata is missing; validated Qloo explainability contributes factual input-attribution explanations. See [backend review](docs/backend-review.md).
+
+The [React frontend](frontend/README.md) implements the selected Orbital Observatory: six selectable planets, an editorial detail panel, interest search, Safe → Wild, optional agent intention and saved cards. Sample and live data are clearly separated. Public deployment is still pending. Integration tests do not prove recommendation quality.
 
 Test provider responses are synthetic and used only in tests. Runtime never silently substitutes fixture recommendations for Qloo.
 
@@ -20,7 +22,7 @@ cd backend
 uv sync --frozen --python 3.12
 ```
 
-Create `backend/.env` using the variable names in `.env.example`. Leave `QLOO_API_KEY` empty until the hackathon key arrives. Never commit the real key. Development database credentials in Compose are local-only defaults.
+Create `backend/.env` using the variable names in `.env.example`. Add your Qloo hackathon key and, optionally, a Gemini key. Never commit real keys. Development database credentials in Compose are local-only defaults.
 
 ```sh
 uv run alembic upgrade head
@@ -28,6 +30,16 @@ uv run uvicorn tasteshift.main:app --host 127.0.0.1 --port 8000
 ```
 
 Open `http://localhost:8000/docs` for the interactive API. `/api/health` checks the process and `/api/ready` checks the database and initial schema. Search returns `provider_not_configured` until a key is supplied.
+
+In another terminal, start the interface (Node 22 LTS or newer):
+
+```sh
+cd frontend
+npm ci
+npm run dev -- --port 4173 --strictPort
+```
+
+Open `http://127.0.0.1:4173`. The local Vite proxy connects relative `/api` requests to FastAPI. Provider keys stay on the server; the initial preview makes no model or Qloo calls. Select **Make it yours** to search and build a live system.
 
 ## API
 
@@ -111,7 +123,7 @@ Supply database configuration and the API key at runtime, never as build argumen
 
 Qloo calls use `https://hackathon.api.qloo.com`, `X-Api-Key`, `/search`, `/entities`, and `GET /v2/insights`. Provider errors are sanitized, calls are time-bounded and outgoing concurrency is limited. The standard path makes one entity lookup and three category requests per discovery; agent mode queries requested categories and may make budgeted detail lookups. Account-level provider quotas and session-data cleanup still need to be completed before a public launch.
 
-The first migration stores discovery items inside a JSON snapshot rather than separate item/evidence tables. This keeps the initial slice small; the snapshot can be split when explainability and experience planning are added. FastAPI currently exposes API documentation, not a finished consumer interface.
+The first migration stores discovery items inside a JSON snapshot rather than separate item/evidence tables. This keeps the initial slice small. The frontend is served separately from FastAPI in development; production needs a same-origin HTTPS reverse proxy for the client and `/api`.
 
 See [MVP design](docs/mvp-design.md), [architecture](docs/architecture.md), and [agent research and integration plan](docs/agent-design.md).
 
